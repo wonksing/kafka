@@ -2,21 +2,27 @@
 
 [출처](https://kafka.apache.org/documentation/#design)의 내용을 변역/의역/오역한 내용이다...
 
-## 4.1 Motivation
-
+## 4.1 Motivation 모티베이션(동기)
 We designed Kafka to be able to act as a unified platform for handling all the real-time data feeds a large company might have. To do this we had to think through a fairly broad set of use cases.
+**우리는 카프카를 큰 회사에서 가질만한 모든 실시간 데이터를 처리하는 통합 플랫폼으로서 동작할 수 있도록 디자인 하였다. 이를 위해 다양한 유스케이스에 대하여 고민해야 했다.**
 
 It would have to have high-throughput to support high volume event streams such as real-time log aggregation.
+실시간 로그 집계와 같은 대용량 이벤트 스트림을 지원할 수 있는 높은 처리량을 가져야 했다.
 
 It would need to deal gracefully with large data backlogs to be able to support periodic data loads from offline systems.
+오프라인 시스템으로부터 주기적으로 데이터 로드되는 대규모 데이터 백로그를 우아하게 다뤄야 했다. 
 
 It also meant the system would have to handle low-latency delivery to handle more traditional messaging use-cases.
+전통적인 메시징 유스케이스를 처리하기 위해 짧은 지연시간을 유지해야 했다.
 
 We wanted to support partitioned, distributed, real-time processing of these feeds to create new, derived feeds. This motivated our partitioning and consumer model.
+새롭게 파생된 데이터를 위해 이런 데이터를 파티션하고, 분산시켜, 실시간으로 처리하고 싶었다. 이는 우리의 파티셔닝과 컨슈머 모델에 동기를 부여했다.
 
 Finally in cases where the stream is fed into other data systems for serving, we knew the system would have to be able to guarantee fault-tolerance in the presence of machine failures.
+마지막으로, 카프카의 스트림이 다른 데이터 시스템에 서비스되기 위해선 머신 장애에 대한 내결함성을 가져야 했다.
 
 Supporting these uses led us to a design with a number of unique elements, more akin to a database log than a traditional messaging system. We will outline some elements of the design in the following sections.
+이런 사용 목적을 모두 지원하기 위해 전통적인 메시징 시스템보다는 데이터베이스와 유사한 여러가지 고유한 요소를 디자인하게 되었다. 이들중 몇가지를 다음 섹션에서 설명할 것이다. 
 
 ## 4.2 Persistence
 
@@ -30,8 +36,9 @@ To compensate for this performance divergence, modern operating systems have bec
 
 Furthermore, we are building on top of the JVM, and anyone who has spent any time with Java memory usage knows two things:
 
-The memory overhead of objects is very high, often doubling the size of the data stored (or worse).
-Java garbage collection becomes increasingly fiddly and slow as the in-heap data increases.
+1. The memory overhead of objects is very high, often doubling the size of the data stored (or worse).
+2. Java garbage collection becomes increasingly fiddly and slow as the in-heap data increases.
+
 As a result of these factors using the filesystem and relying on pagecache is superior to maintaining an in-memory cache or other structure—we at least double the available cache by having automatic access to all free memory, and likely double again by storing a compact byte structure rather than individual objects. Doing so will result in a cache of up to 28-30GB on a 32GB machine without GC penalties. Furthermore, this cache will stay warm even if the service is restarted, whereas the in-process cache will need to be rebuilt in memory (which for a 10GB cache may take 10 minutes) or else it will need to start with a completely cold cache (which likely means terrible initial performance). This also greatly simplifies the code as all logic for maintaining coherency between the cache and filesystem is now in the OS, which tends to do so more efficiently and more correctly than one-off in-process attempts. If your disk usage favors linear reads then read-ahead is effectively pre-populating this cache with useful data on each disk read.
 
 This suggests a design which is very simple: rather than maintain as much as possible in-memory and flush it all out to the filesystem in a panic when we run out of space, we invert that. All data is immediately written to a persistent log on the filesystem without necessarily flushing to disk. In effect this just means that it is transferred into the kernel's pagecache.
